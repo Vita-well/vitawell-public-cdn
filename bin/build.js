@@ -1,58 +1,128 @@
-const { execSync } = require('child_process');
-const fs = require('fs');
+const { exec } = require('child_process');
+const fs = require('fs').promises;
 const path = require('path');
+const crypto = require('crypto');
 
-// Define the current execution folder and the parent folder
-const currentDir = process.cwd();
-const parentDir = path.resolve(currentDir, '..');
+const scriptDir = path.resolve(__dirname, '..');
+const parentDir = path.resolve(scriptDir, '..');
+const cdnBaseUrl = 'https://cdn.jsdelivr.net/gh/Vita-well/vitawell-public-cdn@master';
 
-// Read all folders in the parent directory
-const folders = fs.readdirSync(parentDir).filter((folder) => {
-  const folderPath = path.join(parentDir, folder);
-  return (
-    fs.statSync(folderPath).isDirectory() &&
-    folderPath !== currentDir
-  );
-});
+// Function to run a command asynchronously
+const runCommand = (command, options) =>
+  new Promise((resolve, reject) => {
+    const process = exec(command, options, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+    process.stdout.pipe(process.stdout);
+    process.stderr.pipe(process.stderr);
+  });
 
-// Function to copy files from source to destination
-const copyFolderSync = (src, dest) => {
-  if (!fs.existsSync(dest)) {
-    fs.mkdirSync(dest, { recursive: true });
-  }
-
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-
-    if (entry.isDirectory()) {
-      copyFolderSync(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
+// Function to calculate the hash of a file
+const getFileHash = async (filePath) => {
+  const data = await fs.readFile(filePath);
+  return crypto.createHash('sha256').update(data).digest('hex');
 };
 
-// Visit each folder and run the build command
-folders.forEach((folder) => {
-  const folderPath = path.join(parentDir, folder);
-  try {
-    console.log(`Building project in ${folderPath}...`);
-    execSync('npm run build', { cwd: folderPath, stdio: 'inherit' });
+// Function to compare and copy files recursively
+const compareAndCopy = async (srcDir, destDir, baseUrl, relativePath = '', changedUrls = []) => {
+  const entries = await fs.readdir(srcDir, { withFileTypes: true });
 
-    const distPath = path.join(folderPath, 'dist');
-    if (fs.existsSync(distPath)) {
-      const destinationPath = path.join(currentDir, 'apps', folder);
-      console.log(`Copying dist/ from ${folderPath} to ${destinationPath}...`);
-      copyFolderSync(distPath, destinationPath);
-    } else {
-      console.log(`No dist/ folder found in ${folderPath}.`);
+  for (const entry of entries) {
+    const srcEntryPath = path.join(srcDir, entry.name);
+    const destEntryPath = path.join(destDir, entry.name);
+    const entryRelativePath = path.join(relativePath, entry.name);
+
+    if (entry.isDirectory()) {
+      await fs.mkdir(destEntryPath, { recursive: true });
+      await compareAndCopy(srcEntryPath, destEntryPath, baseUrl, entryRelativePath, changedUrls);
+    } else if (entry.isFile()) {
+      const srcHash = await getFileHash(srcEntryPath);
+      let destHash;
+      try {
+        destHash = await getFileHash(destEntryPath);
+      } catch {
+        destHash = null; // File doesn't exist in the destination
+      }
+
+      if (srcHash !== destHash) {
+        // Copy the file
+        await fs.copyFile(srcEntryPath, destEntryPath);
+        // Add the URL to changedUrls
+        const fileUrl = `${baseUrl}/${entryRelativePath.replace(/\\/g, '/')}`;
+        changedUrls.push(fileUrl);
+      }
     }
-  } catch (error) {
-    console.error(`Error building project in ${folderPath}:`, error);
   }
-});
 
-console.log('All projects processed.');
+  return changedUrls;
+};
+
+// Main function to process projects
+(async () => {
+  try {
+    const entries = await fs.readdir(parentDir);
+
+    // Filter folders asynchronously
+    const folders = (
+      await Promise.all(
+        entries.map(async (entry) => {
+          const entryPath = path.join(parentDir, entry);
+          const stats = await fs.stat(entryPath);
+          if (
+            stats.isDirectory() &&
+            entryPath !== scriptDir &&
+            entry !== 'vitawell-public-cdn' &&
+            entry !== 'node_modules'
+          ) {
+            return entry;
+          }
+          return null;
+        })
+      )
+    ).filter(Boolean);
+
+    // Array to store URLs of changed files
+    const changedUrls = [];
+
+    // Iterate through each folder and perform the build and copy
+    for (const folder of folders) {
+      const folderPath = path.join(parentDir, folder);
+      try {
+        console.log(`Building project in ${folderPath}...`);
+        await runCommand('npm run build', { cwd: folderPath });
+
+        const distPath = path.join(folderPath, 'dist');
+        const destinationPath = path.join(scriptDir, 'apps', folder);
+
+        try {
+          // Check if the dist folder exists and process it
+          await fs.access(distPath);
+          console.log(`Copying and comparing dist/ from ${folderPath} to ${destinationPath}...`);
+          await compareAndCopy(distPath, destinationPath, `${cdnBaseUrl}/apps/${folder}`, '', changedUrls);
+        } catch {
+          console.log(`No dist/ folder found in ${folderPath}.`);
+        }
+      } catch (error) {
+        console.error(`Error building project in ${folderPath}:`, error);
+      }
+    }
+
+    // Output the URLs of changed files
+    if (changedUrls.length > 0) {
+      console.log('=====================================');
+      console.log('Changed files that need to be invalidated:');
+      changedUrls.forEach((url) => console.log('-', url));
+      console.log('=====================================');
+    } else {
+      console.log('No changes detected.');
+    }
+
+    console.log('All projects processed.');
+  } catch (error) {
+    console.error('Error in script:', error);
+  }
+})();
