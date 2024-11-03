@@ -1,0 +1,9 @@
+{
+  "name": "vitawell-public-cdn",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node bin/build.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
