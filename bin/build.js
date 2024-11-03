@@ -42,9 +42,9 @@ folders.forEach((folder) => {
     console.log(`Building project in ${folderPath}...`);
     execSync('npm run build', { cwd: folderPath, stdio: 'inherit' });
 
-    const distPath = path.join(folderPath, 'apps');
+    const distPath = path.join(folderPath, 'dist');
     if (fs.existsSync(distPath)) {
-      const destinationPath = path.join(currentDir, 'cdn', folder);
+      const destinationPath = path.join(currentDir, 'apps', folder);
       console.log(`Copying dist/ from ${folderPath} to ${destinationPath}...`);
       copyFolderSync(distPath, destinationPath);
     } else {
