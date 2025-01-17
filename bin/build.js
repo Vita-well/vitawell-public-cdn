@@ -77,7 +77,9 @@ const compareAndCopy = async (srcDir, destDir, baseUrl, relativePath = '', chang
             entryPath !== scriptDir &&
             entry !== 'vitawell-public-cdn' &&
             entry !== 'node_modules' &&
-            entry !== 'vitawell-api-service'  // Added this condition to omit vitawell-api-service
+            entry !== 'vitawell-api-service' &&
+            entry !== 'claude-artifacts-react' &&
+            entry !== 'vitawell-admin'
           ) {
             return entry;
           }
