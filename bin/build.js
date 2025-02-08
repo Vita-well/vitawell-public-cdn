@@ -75,11 +75,7 @@ const compareAndCopy = async (srcDir, destDir, baseUrl, relativePath = '', chang
           if (
             stats.isDirectory() &&
             entryPath !== scriptDir &&
-            entry !== 'vitawell-public-cdn' &&
-            entry !== 'node_modules' &&
-            entry !== 'vitawell-api-service' &&
-            entry !== 'claude-artifacts-react' &&
-            entry !== 'vitawell-admin'
+            entry === 'vitawell-landing'
           ) {
             return entry;
           }
